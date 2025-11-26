@@ -31,7 +31,8 @@ sudo installer -pkg /tmp/swiftdialog.pkg -target /
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/macos-mise-update-notification.git ~/Git/macos-mise-update-notification
+git clone git@github.com:m4dm4rtig4n/mise-notification-update.git
+cd mise-notification-update
 ```
 
 ### 2. Install scripts
