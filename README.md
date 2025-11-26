@@ -2,7 +2,7 @@
 
 Native macOS notifications when [mise](https://mise.jdx.dev/) packages have updates available.
 
-![Demo](./demo.png)
+![Demo](./demo.gif)
 
 ## Features
 
