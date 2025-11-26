@@ -1,11 +1,12 @@
-# macOS Mise Update Notification
+# macOS Mise & Homebrew Update Notification
 
-Native macOS notifications when [mise](https://mise.jdx.dev/) packages have updates available.
+Native macOS notifications when [mise](https://mise.jdx.dev/) or [Homebrew](https://brew.sh/) packages have updates available.
 
 ![Demo](./demo.gif)
 
 ## Features
 
+- **Dual package manager support**: mise + Homebrew
 - **Native notifications** via `terminal-notifier`
 - **Native SwiftUI app** for viewing and installing updates (single window, smooth transitions)
 - **Real-time progress** during installation
@@ -15,8 +16,10 @@ Native macOS notifications when [mise](https://mise.jdx.dev/) packages have upda
 ## Requirements
 
 - macOS 13+
-- [mise](https://mise.jdx.dev/) - polyglot runtime manager
 - [terminal-notifier](https://github.com/julienXX/terminal-notifier) - `brew install terminal-notifier`
+- At least one of:
+  - [mise](https://mise.jdx.dev/) - polyglot runtime manager
+  - [Homebrew](https://brew.sh/) - package manager for macOS
 
 ## Installation
 
@@ -93,6 +96,7 @@ tail -f ~/.cache/mise-notifier.log
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MISE_BIN` | `~/.local/bin/mise` | Path to mise binary |
+| `BREW_BIN` | `/opt/homebrew/bin/brew` | Path to Homebrew binary |
 | `CACHE_FILE` | `~/.cache/mise-notifier-last` | Cache file for dedup |
 | `DIALOG_APP` | `~/Bin/MiseUpdater.app` | Path to updater app |
 
@@ -115,12 +119,13 @@ Default: runs at login + every hour. Edit `StartInterval` in the plist:
            ▼
 ┌─────────────────────┐     no updates     ┌─────────────────┐
 │ mise-update-notifier│ ─────────────────▶ │   (silent)      │
-└──────────┬──────────┘                    └─────────────────┘
+│   (mise + brew)     │                    └─────────────────┘
+└──────────┬──────────┘
            │ updates found
            ▼
 ┌─────────────────────┐
 │    Notification     │
-│  "🔄 3 updates"     │
+│  "🔄 5 updates"     │
 └──────────┬──────────┘
            │ click
            ▼
@@ -129,8 +134,10 @@ Default: runs at login + every hour. Edit `StartInterval` in the plist:
 │  ┌───────────────────────────────┐  │
 │  │ 🚀 Mises à jour               │  │
 │  │                               │  │
-│  │ ⬆️ node    25.2.0 → 25.2.1   │  │
-│  │ ⬆️ helm    4.0.0  → 4.0.1    │  │
+│  │ 🔧 node    20.10.0 → 22.0.0  │  │
+│  │ 🔧 helm    3.14.0  → 3.15.0  │  │
+│  │ 🍺 git     2.43.0  → 2.44.0  │  │
+│  │ 🍺 jq      1.7.0   → 1.7.1   │  │
 │  │                               │  │
 │  │    [Plus tard]  [Installer]   │  │
 │  └───────────────────────────────┘  │
@@ -138,15 +145,15 @@ Default: runs at login + every hour. Edit `StartInterval` in the plist:
 │                 ▼ click Install     │
 │  ┌───────────────────────────────┐  │
 │  │ ⏳ Installation...            │  │
-│  │ ▸ mise node@25.2.1 install    │  │
-│  │ ▸ downloading...              │  │
+│  │ ▸ 🔧 Mise à jour mise...      │  │
+│  │ ▸ 🍺 Mise à jour Homebrew...  │  │
 │  │ ████████████░░░░░░ 60%        │  │
 │  └───────────────────────────────┘  │
 │                 │                   │
 │                 ▼ done              │
 │  ┌───────────────────────────────┐  │
 │  │ ✅ Terminé !                  │  │
-│  │ ▸ node ✓ installed            │  │
+│  │ ▸ ✅ Terminé!                 │  │
 │  │ ████████████████████ 100%     │  │
 │  │              [OK]             │  │
 │  └───────────────────────────────┘  │
@@ -158,9 +165,9 @@ Default: runs at login + every hour. Edit `StartInterval` in the plist:
 
 | File | Description |
 |------|-------------|
-| `mise-update-notifier.sh` | Main script, sends notification if updates available |
+| `mise-update-notifier.sh` | Main script, checks mise + brew and sends notification |
 | `MiseUpdater/` | SwiftUI source code |
-| `MiseUpdater.app/` | Compiled macOS app |
+| `MiseUpdater.app/` | Compiled macOS app (handles both mise and Homebrew) |
 | `com.mise.update-notifier.plist` | launchd service definition |
 
 ## Building from source

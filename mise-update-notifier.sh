@@ -1,55 +1,92 @@
 #!/bin/bash
 #
 # mise-update-notifier.sh
-# Notifie quand des packages mise ont des mises à jour disponibles
+# Notifie quand des packages mise ou Homebrew ont des mises à jour disponibles
 #
 
 set -euo pipefail
 
 # Configuration
 MISE_BIN="${MISE_BIN:-$HOME/.local/bin/mise}"
+BREW_BIN="${BREW_BIN:-/opt/homebrew/bin/brew}"
 CACHE_FILE="${CACHE_FILE:-$HOME/.cache/mise-notifier-last}"
 NOTIFY_CMD="terminal-notifier"
 DIALOG_APP="${DIALOG_APP:-$HOME/Bin/MiseUpdater.app}"
 
-# Vérifie que mise est disponible
+# Vérifie les dépendances
 check_dependencies() {
-    if [[ ! -x "$MISE_BIN" ]]; then
-        echo "Erreur: mise non trouvé à $MISE_BIN" >&2
-        exit 1
-    fi
-
     if ! command -v "$NOTIFY_CMD" &>/dev/null; then
         echo "Erreur: $NOTIFY_CMD non installé (brew install terminal-notifier)" >&2
         exit 1
     fi
 }
 
-# Récupère les packages outdated
-get_outdated_packages() {
-    "$MISE_BIN" outdated 2>/dev/null || true
+# Récupère les packages mise outdated
+get_mise_outdated() {
+    if [[ -x "$MISE_BIN" ]]; then
+        "$MISE_BIN" outdated 2>/dev/null | while read -r line; do
+            [[ -z "$line" ]] && continue
+            echo "mise:$line"
+        done
+    fi
+}
+
+# Récupère les packages brew outdated
+get_brew_outdated() {
+    if [[ -x "$BREW_BIN" ]]; then
+        "$BREW_BIN" outdated --verbose 2>/dev/null | while read -r line; do
+            [[ -z "$line" ]] && continue
+            echo "brew:$line"
+        done
+    fi
+}
+
+# Récupère tous les packages outdated
+get_all_outdated() {
+    {
+        get_mise_outdated
+        get_brew_outdated
+    } | grep -v '^$' || true
 }
 
 # Formate le message de notification
-# Entrée: liste des packages outdated (une ligne par package)
-# Sortie: titre (ligne 1) + message (lignes suivantes)
 format_notification_message() {
     local outdated_list="$1"
     local count
     count=$(echo "$outdated_list" | wc -l | tr -d ' ')
 
+    local mise_count brew_count
+    mise_count=$(echo "$outdated_list" | grep -c "^mise:" || true)
+    brew_count=$(echo "$outdated_list" | grep -c "^brew:" || true)
+
     # Titre avec le nombre de mises à jour
     if [[ "$count" -eq 1 ]]; then
-        echo "🔄 1 mise à jour mise"
+        echo "🔄 1 mise à jour disponible"
     else
-        echo "🔄 $count mises à jour mise"
+        echo "🔄 $count mises à jour disponibles"
     fi
 
     # Message: liste les 5 premiers packages avec versions
     local shown=0
-    while IFS=' ' read -r name _ installed latest _; do
-        [[ -z "$name" ]] && continue
-        echo "$name $installed → $latest"
+    while IFS=':' read -r source rest; do
+        [[ -z "$source" ]] && continue
+
+        local name current new icon
+        if [[ "$source" == "mise" ]]; then
+            icon="🔧"
+            # Format mise: "name tool installed latest"
+            read -r name _ current new _ <<< "$rest"
+        else
+            icon="🍺"
+            # Format brew: "name (current) < new" or "name (current) != new"
+            # Parse manually to avoid regex issues
+            name="${rest%% *}"
+            local temp="${rest#* (}"
+            current="${temp%%)*}"
+            new="${rest##* }"
+        fi
+
+        echo "$icon $name $current → $new"
         ((shown++))
         [[ $shown -ge 5 ]] && break
     done <<< "$outdated_list"
@@ -70,7 +107,7 @@ send_notification() {
         -message "$message" \
         -sound "default" \
         -group "mise-updates" \
-        -execute "open $DIALOG_APP"
+        -open "file://$DIALOG_APP"
 }
 
 # Vérifie si on a déjà notifié pour cette liste
@@ -98,7 +135,7 @@ main() {
     check_dependencies
 
     local outdated
-    outdated=$(get_outdated_packages)
+    outdated=$(get_all_outdated)
 
     if [[ -z "$outdated" ]]; then
         echo "Tous les packages sont à jour ✓"

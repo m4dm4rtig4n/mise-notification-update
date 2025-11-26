@@ -3,11 +3,24 @@ import AppKit
 
 // MARK: - Model
 
+enum PackageSource: String {
+    case mise = "mise"
+    case brew = "brew"
+
+    var icon: String {
+        switch self {
+        case .mise: return "🔧"
+        case .brew: return "🍺"
+        }
+    }
+}
+
 struct PackageUpdate: Identifiable {
     let id = UUID()
     let name: String
     let currentVersion: String
     let newVersion: String
+    let source: PackageSource
 }
 
 enum AppState {
@@ -18,86 +31,85 @@ enum AppState {
     case upToDate
 }
 
-// MARK: - ViewModel
+// MARK: - Update Checker
 
-@MainActor
-class MiseUpdaterViewModel: ObservableObject {
-    @Published var state: AppState = .loading
+class UpdateChecker {
+    static let shared = UpdateChecker()
 
-    private let miseBin: String
+    let miseBin: String
+    let brewBin: String
 
     init() {
         self.miseBin = ProcessInfo.processInfo.environment["MISE_BIN"]
             ?? "\(NSHomeDirectory())/.local/bin/mise"
+        self.brewBin = ProcessInfo.processInfo.environment["BREW_BIN"]
+            ?? "/opt/homebrew/bin/brew"
     }
 
-    func checkForUpdates() async {
-        let outdated = await runCommand("\(miseBin) outdated")
-        let lines = outdated.split(separator: "\n").map(String.init)
-
-        if lines.isEmpty {
-            state = .upToDate
-            return
-        }
-
+    func checkForUpdates() async -> [PackageUpdate] {
         var packages: [PackageUpdate] = []
+
+        let miseOutdated = await runCommand("\(miseBin) outdated")
+        packages.append(contentsOf: parseMiseOutput(miseOutdated))
+
+        let brewOutdated = await runCommand("\(brewBin) outdated --verbose")
+        packages.append(contentsOf: parseBrewOutput(brewOutdated))
+
+        return packages
+    }
+
+    private func parseMiseOutput(_ output: String) -> [PackageUpdate] {
+        let lines = output.split(separator: "\n").map(String.init)
+        var packages: [PackageUpdate] = []
+
         for line in lines {
-            let parts = line.split(separator: " ").map(String.init)
+            if line.hasPrefix("mise ") || line.contains("up to date") {
+                continue
+            }
+
+            let parts = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
             guard parts.count >= 4 else { continue }
+
             let name = parts[0]
             let current = parts[2]
             let new = parts[3]
-            packages.append(PackageUpdate(name: name, currentVersion: current, newVersion: new))
-        }
 
-        state = .updates(packages)
-    }
-
-    func installUpdates() async {
-        state = .installing(progress: 0, log: ["▸ Démarrage de la mise à jour..."])
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: miseBin)
-        process.arguments = ["upgrade"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        do {
-            try process.run()
-        } catch {
-            state = .done(log: ["Erreur: \(error.localizedDescription)"])
-            return
-        }
-
-        var logLines: [String] = []
-        let handle = pipe.fileHandleForReading
-
-        // Read output line by line
-        while process.isRunning || handle.availableData.count > 0 {
-            if let line = String(data: handle.availableData, encoding: .utf8), !line.isEmpty {
-                let newLines = line.split(separator: "\n").map { "▸ \($0)" }
-                logLines.append(contentsOf: newLines)
-
-                // Keep last 10 lines
-                if logLines.count > 10 {
-                    logLines = Array(logLines.suffix(10))
-                }
-
-                let checkmarks = logLines.filter { $0.contains("✓") }.count
-                let progress = min(Double(checkmarks) / 5.0, 1.0) // Estimate
-
-                state = .installing(progress: progress, log: logLines)
+            guard current.contains(where: { $0.isNumber }) || current == "[MISSING]",
+                  new.contains(where: { $0.isNumber }) else {
+                continue
             }
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+
+            packages.append(PackageUpdate(name: name, currentVersion: current, newVersion: new, source: .mise))
         }
 
-        process.waitUntilExit()
-        state = .done(log: logLines)
+        return packages
     }
 
-    private func runCommand(_ command: String) async -> String {
+    private func parseBrewOutput(_ output: String) -> [PackageUpdate] {
+        let lines = output.split(separator: "\n").map(String.init)
+        var packages: [PackageUpdate] = []
+
+        for line in lines {
+            let pattern = #"^([^\s]+)\s+\(([^)]+)\)\s+[<!]=?\s+(.+)$"#
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+                let nameRange = Range(match.range(at: 1), in: line)!
+                let currentRange = Range(match.range(at: 2), in: line)!
+                let newRange = Range(match.range(at: 3), in: line)!
+
+                packages.append(PackageUpdate(
+                    name: String(line[nameRange]),
+                    currentVersion: String(line[currentRange]),
+                    newVersion: String(line[newRange]),
+                    source: .brew
+                ))
+            }
+        }
+
+        return packages
+    }
+
+    func runCommand(_ command: String) async -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", command]
@@ -117,6 +129,59 @@ class MiseUpdaterViewModel: ObservableObject {
     }
 }
 
+// MARK: - ViewModel
+
+@MainActor
+class MiseUpdaterViewModel: ObservableObject {
+    @Published var state: AppState = .loading
+
+    func checkForUpdates() async {
+        let packages = await UpdateChecker.shared.checkForUpdates()
+
+        if packages.isEmpty {
+            state = .upToDate
+            return
+        }
+
+        state = .updates(packages)
+    }
+
+    func installUpdates(packages: [PackageUpdate]) async {
+        var logLines: [String] = ["▸ Démarrage de la mise à jour..."]
+        state = .installing(progress: 0, log: logLines)
+
+        let checker = UpdateChecker.shared
+        let misePackages = packages.filter { $0.source == .mise }
+        let brewPackages = packages.filter { $0.source == .brew }
+
+        let totalSteps = (misePackages.isEmpty ? 0 : 1) + (brewPackages.isEmpty ? 0 : 1)
+        var completedSteps = 0
+
+        if !misePackages.isEmpty {
+            logLines.append("▸ 🔧 Mise à jour des packages mise...")
+            state = .installing(progress: Double(completedSteps) / Double(totalSteps), log: logLines)
+
+            let miseLog = await checker.runCommand("\(checker.miseBin) upgrade")
+            logLines.append(contentsOf: miseLog.split(separator: "\n").map { "  \($0)" })
+            completedSteps += 1
+            state = .installing(progress: Double(completedSteps) / Double(totalSteps), log: Array(logLines.suffix(10)))
+        }
+
+        if !brewPackages.isEmpty {
+            logLines.append("▸ 🍺 Mise à jour des packages Homebrew...")
+            state = .installing(progress: Double(completedSteps) / Double(totalSteps), log: Array(logLines.suffix(10)))
+
+            let brewLog = await checker.runCommand("\(checker.brewBin) upgrade")
+            logLines.append(contentsOf: brewLog.split(separator: "\n").map { "  \($0)" })
+            completedSteps += 1
+            state = .installing(progress: Double(completedSteps) / Double(totalSteps), log: Array(logLines.suffix(10)))
+        }
+
+        logLines.append("▸ ✅ Terminé!")
+        state = .done(log: Array(logLines.suffix(10)))
+    }
+}
+
 // MARK: - Views
 
 struct ContentView: View {
@@ -131,7 +196,7 @@ struct ContentView: View {
                 UpToDateView()
             case .updates(let packages):
                 UpdatesListView(packages: packages) {
-                    Task { await viewModel.installUpdates() }
+                    Task { await viewModel.installUpdates(packages: packages) }
                 }
             case .installing(let progress, let log):
                 InstallingView(progress: progress, log: log)
@@ -159,8 +224,6 @@ struct LoadingView: View {
 }
 
 struct UpToDateView: View {
-    @Environment(\.dismiss) var dismiss
-
     var body: some View {
         VStack(spacing: 20) {
             Text("✅")
@@ -194,7 +257,7 @@ struct UpdatesListView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(packages) { pkg in
                         HStack {
-                            Text("⬆️")
+                            Text(pkg.source.icon)
                             Text(pkg.name)
                                 .fontWeight(.semibold)
                             Spacer()
