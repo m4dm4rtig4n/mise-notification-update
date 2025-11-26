@@ -2,7 +2,7 @@
 
 Native macOS notifications when [mise](https://mise.jdx.dev/) packages have updates available.
 
-![Demo](./demo.gif)
+<video src="https://github.com/m4dm4rtig4n/mise-notification-update/raw/main/demo.mp4" width="600" autoplay loop muted></video>
 
 ## Features
 
