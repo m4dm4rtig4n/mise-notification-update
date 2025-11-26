@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# install.sh - Install mise update notification scripts
+# install.sh - Install mise update notification
 #
 
 set -euo pipefail
@@ -22,25 +22,48 @@ if ! command -v terminal-notifier &>/dev/null; then
     exit 1
 fi
 
-if [[ ! -x /usr/local/bin/dialog ]]; then
-    echo "⚠️  SwiftDialog not found. Install from:"
-    echo "   https://github.com/swiftDialog/swiftDialog/releases"
-    echo ""
-    read -p "Continue anyway? [y/N] " -n 1 -r
-    echo
-    [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
-fi
-
 # Create directories
 mkdir -p "$BIN_DIR"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
-# Copy scripts
+# Build SwiftUI app
+echo "🔨 Building MiseUpdater..."
+cd "$SCRIPT_DIR/MiseUpdater"
+swift build -c release
+cd "$SCRIPT_DIR"
+
+# Create app bundle
+echo "📦 Creating app bundle..."
+mkdir -p "$BIN_DIR/MiseUpdater.app/Contents/MacOS"
+cp "$SCRIPT_DIR/MiseUpdater/.build/release/MiseUpdater" "$BIN_DIR/MiseUpdater.app/Contents/MacOS/"
+
+cat > "$BIN_DIR/MiseUpdater.app/Contents/Info.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>MiseUpdater</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mise.updater</string>
+    <key>CFBundleName</key>
+    <string>Mise Updater</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Copy notifier script
 echo "📁 Copying scripts to $BIN_DIR..."
 cp "$SCRIPT_DIR/mise-update-notifier.sh" "$BIN_DIR/"
-cp "$SCRIPT_DIR/mise-update-dialog.sh" "$BIN_DIR/"
 chmod +x "$BIN_DIR/mise-update-notifier.sh"
-chmod +x "$BIN_DIR/mise-update-dialog.sh"
 
 # Update plist with correct paths
 echo "⚙️  Configuring launchd service..."
@@ -57,7 +80,7 @@ echo "✅ Installation complete!"
 echo ""
 echo "Commands:"
 echo "  $BIN_DIR/mise-update-notifier.sh  # Check for updates"
-echo "  $BIN_DIR/mise-update-dialog.sh    # Open update dialog"
+echo "  open $BIN_DIR/MiseUpdater.app     # Open updater directly"
 echo ""
 echo "Service status:"
 launchctl list | grep mise || echo "  (not running yet)"

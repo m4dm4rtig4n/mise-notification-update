@@ -10,7 +10,7 @@ set -euo pipefail
 MISE_BIN="${MISE_BIN:-$HOME/.local/bin/mise}"
 CACHE_FILE="${CACHE_FILE:-$HOME/.cache/mise-notifier-last}"
 NOTIFY_CMD="terminal-notifier"
-DIALOG_SCRIPT="${DIALOG_SCRIPT:-$HOME/Bin/mise-update-dialog.sh}"
+DIALOG_APP="${DIALOG_APP:-$HOME/Bin/MiseUpdater.app}"
 
 # Vérifie que mise est disponible
 check_dependencies() {
@@ -70,7 +70,7 @@ send_notification() {
         -message "$message" \
         -sound "default" \
         -group "mise-updates" \
-        -execute "$DIALOG_SCRIPT"
+        -execute "open $DIALOG_APP"
 }
 
 # Vérifie si on a déjà notifié pour cette liste

@@ -6,3 +6,8 @@
 
 # Temporary files
 /tmp/
+
+# Swift build
+.build/
+.swiftpm/
+MiseUpdater.app/
